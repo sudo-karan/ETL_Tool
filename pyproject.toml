@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "etl-tool"
-version = "0.2.0"
-description = "Visual node-based ETL platform - headless execution engine (Phases 1-2)"
+version = "0.3.0"
+description = "Visual node-based ETL platform - engine (Phases 1-2) + server (Phase 3)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,21 @@ dependencies = [
 postgres = [
     "asyncpg>=0.29",
 ]
+# Phase 3 server: FastAPI app, JWT auth, arq/Redis workers, Alembic migrations.
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "alembic>=1.13",
+    "arq>=0.26",
+    "redis>=5.0",
+    "pydantic-settings>=2.2",
+    "pyjwt>=2.8",
+    "bcrypt>=4.1",
+    "python-multipart>=0.0.9",
+    "email-validator>=2.1",
+    "croniter>=2.0",
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -32,6 +47,7 @@ dev = [
 
 [project.scripts]
 etl = "etl_core.cli:entrypoint"
+etl-server = "etl_server.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
