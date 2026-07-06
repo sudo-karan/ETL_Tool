@@ -100,3 +100,30 @@ def production_app() -> FastAPI:
     _add_cors(app)
     _register_routers(app)
     return app
+
+
+def dev_app() -> FastAPI:
+    """Single-process dev server: no Redis/worker. Tables are created on
+    startup and triggered runs execute inline via the in-memory queue.
+
+        uvicorn etl_server.app:dev_app --factory --reload
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        settings = get_settings()
+        db = Database(settings.database_url)
+        app.state.settings = settings
+        app.state.db = db
+        app.state.cipher = settings.secrets_cipher()
+        app.state.queue = inline_queue(db, settings)
+        await db.create_all()
+        try:
+            yield
+        finally:
+            await db.dispose()
+
+    app = FastAPI(title="ETL Tool Server (dev)", version=__version__, lifespan=lifespan)
+    _add_cors(app)
+    _register_routers(app)
+    return app

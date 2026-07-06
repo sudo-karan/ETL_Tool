@@ -16,12 +16,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="single-process dev server (SQLite + inline runs, no Redis/worker)",
+    )
     args = parser.parse_args(argv)
 
     import uvicorn
 
     uvicorn.run(
-        "etl_server.app:production_app",
+        "etl_server.app:dev_app" if args.dev else "etl_server.app:production_app",
         factory=True,
         host=args.host,
         port=args.port,
