@@ -1,0 +1,9 @@
+{
+  "id": "users",
+  "type": "api_source",
+  "config": {
+    "method": "GET",
+    "url": "https://jsonplaceholder.typicode.com/users",
+    "timeout_s": 10
+  }
+}

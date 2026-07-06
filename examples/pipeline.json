@@ -1,0 +1,70 @@
+{
+  "pipeline_id": "users-posts-report",
+  "nodes": [
+    {
+      "id": "users",
+      "type": "api_source",
+      "config": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/users"
+      }
+    },
+    {
+      "id": "users_slim",
+      "type": "transform",
+      "config": {
+        "ops": [
+          { "op": "select", "fields": ["id", "name"] },
+          { "op": "rename", "mapping": { "id": "userId" } }
+        ]
+      }
+    },
+    {
+      "id": "user_ids",
+      "type": "iterator",
+      "config": {
+        "mode": "array",
+        "array": [1, 2, 3],
+        "fan_in": "concat"
+      }
+    },
+    {
+      "id": "posts",
+      "type": "api_source",
+      "config": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/posts",
+        "query_params": { "userId": "$iter.value" },
+        "retry": { "max": 2, "backoff": 0.5 },
+        "rate_limit": { "rps": 5 }
+      }
+    },
+    {
+      "id": "joined",
+      "type": "merge",
+      "config": {
+        "strategy": "join",
+        "keys": ["userId"],
+        "how": "left"
+      }
+    },
+    {
+      "id": "report",
+      "type": "transform",
+      "config": {
+        "ops": [
+          { "op": "select", "fields": ["userId", "name", "title"] },
+          { "op": "computed", "target": "title_length", "expression": "len(title)" },
+          { "op": "filter", "predicate": { "field": "title_length", "op": "gt", "value": 20 } }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "users", "to": "users_slim" },
+    { "from": "user_ids", "to": "posts" },
+    { "from": "posts", "to": "joined" },
+    { "from": "users_slim", "to": "joined" },
+    { "from": "joined", "to": "report" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "github-user",
+  "type": "api_source",
+  "config": {
+    "method": "GET",
+    "url": "https://api.github.com/user",
+    "auth": { "type": "bearer", "secret_ref": "GITHUB_TOKEN" },
+    "timeout_s": 10
+  }
+}
