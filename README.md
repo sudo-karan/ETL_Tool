@@ -24,11 +24,11 @@ them:
    same JSON schema. Thick in screens, thin in logic: every screen renders
    backend state.
 
-**Current status: Phase 3 complete** — the headless engine (nine node types)
-**plus a multi-user FastAPI server**: JWT auth, per-user pipeline/secret CRUD,
-an arq/Redis worker that runs the engine and persists structured logs/errors,
-live SSE run streaming, connectivity diagnostics, and a timezone-aware cron
-scheduler. All that's left is the Phase 4 React Flow UI.
+**Current status: Phase 4 complete — the full platform.** The headless engine
+(nine node types), a multi-user FastAPI server (JWT auth, CRUD, arq/Redis
+worker, live SSE streaming, diagnostics, a timezone-aware scheduler), **and a
+React Flow drag-and-drop UI** that composes, runs and monitors pipelines — all
+sharing one pipeline JSON contract.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ scheduler. All that's left is the Phase 4 React Flow UI.
 | 3a | Server foundation: PostgreSQL models, Alembic, JWT auth, per-user pipeline CRUD, SSRF in the HTTP/DB layer | ✅ done |
 | 3b | arq + Redis worker (encrypted secrets → engine → status/log/error tracking); trigger-run, test-connection, live SSE streaming | ✅ done |
 | 3c | Scheduler: per-minute tick over `schedules` (timezone-aware), schedule CRUD | ✅ done |
-| 4 | React Flow UI | ⏳ next |
+| 4 | React Flow UI: editor, run monitor, diagnostics, schedules, secrets, auth (`frontend/`) | ✅ done |
 
 *(The `SecretsProvider` interface + env provider and the `$upstream`/`$iter`
 reference engine landed in Phase 1 — api_source auth and iterator fan-out
@@ -503,6 +503,38 @@ curl -s localhost:8000/pipelines -H "Authorization: Bearer $TOKEN" \
   in *its own* timezone and enqueues due runs onto the same queue workers
   already consume — a scheduled run is just a run with `trigger = schedule`.
 
+For single-machine dev without Redis, run the API with the inline-queue factory
+(`uvicorn etl_server.app:dev_app --factory`, also `etl-server --dev`): tables
+are created on startup and each triggered run executes inline in the API process
+— no worker needed.
+
+## UI (Phase 4)
+
+A React + TypeScript + Vite app built on **React Flow** lives in
+[`frontend/`](frontend/). It is a *consumer* of the server API and holds no
+business logic — every screen renders backend state, and the editor emits the
+**same pipeline JSON** the engine executes.
+
+- **Editor** — drag-and-drop palette of all nine node types, a canvas, per-node
+  config panels (quick fields + a raw-JSON escape hatch), and **Save** (emits
+  the pipeline JSON). Layout auto-computes; drag positions persist per pipeline.
+- **Run monitor** — trigger a run and watch per-node status light up on the
+  canvas (idle / running / succeeded / failed) with **live logs streamed over
+  SSE**; a history tab replays past runs.
+- **Error drill-down** — click a failed node to see its `NodeError` (category,
+  HTTP status, redacted request, retries).
+- **Diagnostics** — the DNS→TCP→TLS→HTTP→auth (or db connect→query) ladder with
+  latencies + a sample body.
+- **Schedules / Secrets / Auth** — cron+timezone schedule management, encrypted
+  secret storage, and login + per-user pipeline list & run history.
+
+```bash
+cd frontend && npm install
+npm run dev        # http://localhost:5173  (VITE_API_BASE -> the server)
+npm run build      # tsc -b && vite build  ->  dist/
+npm test           # vitest: RF<->JSON mapping, layout, SSE-frame parsing
+```
+
 ## Known limitations (v1, by design — documented for later phases)
 
 - **Rate limiting is per-run only.** Multiple concurrent runs hitting the
@@ -565,9 +597,12 @@ src/etl_server/     Phase 3 server (a consumer of the engine)
   worker.py         execute_run: secrets → engine → status/logs/errors
   scheduler.py      timezone-aware due evaluation + the enqueue tick
   routers/          auth, pipelines, runs (+SSE), secrets, diagnostics, schedules
-  app.py            FastAPI factory; __main__.py = uvicorn; arq_worker.py = worker
+  app.py            FastAPI factories (create_app/dev_app/production_app)
+  __main__.py       uvicorn entry (etl-server);  arq_worker.py = worker + tick
   migrations/       Alembic (async env + initial revision)
-tests/              277 tests: engine (respx APIs, loopback servers, SQLite db
+frontend/           Phase 4 React + TypeScript + React Flow UI (a consumer of
+                    the API); editor, run monitor, diagnostics, schedules, auth
+tests/              279 tests: engine (respx APIs, loopback servers, SQLite db
   server/           nodes) + server (ASGI client, SQLite, in-memory queue)
 examples/           runnable pipelines (api chaining, files, decrypt) + sources
 ```
