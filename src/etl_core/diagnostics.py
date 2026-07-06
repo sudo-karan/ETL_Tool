@@ -29,7 +29,7 @@ from .nodes.api_source import ApiSourceConfig, _format_url
 from .redact import Redactor
 from .references import has_references
 from .schema import NodeSpec
-from .ssrf import SSRFPolicy, find_blocked, resolve_host
+from .ssrf import SSRFPolicy, find_blocked, guarded_event_hooks, resolve_host
 
 CheckStatus = Literal["passed", "failed", "skipped"]
 
@@ -240,7 +240,10 @@ async def test_connection(
     base_params = {k: str(v) for k, v in cfg.query_params.items()}
     sample: str | None = None
     async with httpx.AsyncClient(
-        timeout=cfg.timeout_s, verify=cfg.verify_tls, follow_redirects=True
+        timeout=cfg.timeout_s,
+        verify=cfg.verify_tls,
+        follow_redirects=True,
+        event_hooks=guarded_event_hooks(policy),
     ) as client:
         started = time.perf_counter()
         try:

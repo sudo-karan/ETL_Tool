@@ -87,6 +87,28 @@ async def test_api_source_run_blocked_by_default_policy(http_server):
     assert "blocked" in error.message
 
 
+async def test_redirect_to_blocked_host_is_denied(redirecting_server):
+    """A 302 to a private/metadata host must not bypass the guard, even when
+    the initial host is allowlisted."""
+    from etl_core import ExecutionOptions, PipelineSpec, execute_pipeline
+
+    entry, target = redirecting_server  # entry allowlisted; target is not
+    spec = PipelineSpec.model_validate(
+        {
+            "pipeline_id": "p",
+            "nodes": [{"id": "api", "type": "api_source", "config": {"url": f"{entry}/start"}}],
+            "edges": [],
+        }
+    )
+    options = ExecutionOptions(ssrf_policy=SSRFPolicy(allow_hosts=["127.0.0.1"]))
+    result = await execute_pipeline(spec, options=options)
+    assert result.status == RunStatus.FAILED
+    error = result.errors[0]
+    assert error.category.value == "config"
+    assert "blocked" in error.message
+    assert target in error.message  # the redirect target is what was denied
+
+
 async def test_api_source_run_allowed_with_allowlist(http_server):
     from etl_core import ExecutionOptions, PipelineSpec, execute_pipeline
 

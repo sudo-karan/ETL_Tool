@@ -137,3 +137,18 @@ async def ensure_url_allowed(url: str, policy: SSRFPolicy) -> None:
     reason = find_blocked(host, ips, policy)
     if reason is not None:
         raise SSRFBlockedError(reason)
+
+
+def guarded_event_hooks(policy: SSRFPolicy) -> dict[str, list]:
+    """httpx ``event_hooks`` that re-check the SSRF policy on every request.
+
+    httpx fires request hooks once per hop, so this validates redirect
+    targets too -- closing the bypass where a 302 to a private/metadata host
+    would otherwise escape a guard that only checked the initial URL. Keeps
+    the client's normal (proxy-aware) transport, unlike a custom transport.
+    """
+
+    async def _check(request) -> None:  # request: httpx.Request
+        await ensure_url_allowed(str(request.url), policy)
+
+    return {"request": [_check]}

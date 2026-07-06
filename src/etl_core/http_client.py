@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .errors import ErrorCategory
+from .errors import ErrorCategory, SSRFBlockedError
 
 RETRYABLE_STATUS_MIN = 500
 RATE_LIMIT_STATUS = 429
@@ -212,6 +212,12 @@ async def request_with_retry(
         except Exception as exc:  # noqa: BLE001 - categorized below
             if isinstance(exc, asyncio.CancelledError):
                 raise
+            if isinstance(exc, SSRFBlockedError):
+                # A redirect (or the initial URL) pointed at a blocked host;
+                # never retry, surface as a config error.
+                raise RequestFailure(
+                    ErrorCategory.CONFIG, str(exc), attempts=attempts
+                ) from exc
             category = categorize_exception(exc)
             if attempts <= retry.max and _is_retryable_exception(exc):
                 if on_retry is not None:

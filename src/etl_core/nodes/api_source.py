@@ -26,7 +26,7 @@ from ..http_client import (
     request_with_retry,
 )
 from ..paths import get_path
-from ..ssrf import ensure_url_allowed
+from ..ssrf import ensure_url_allowed, guarded_event_hooks
 from .base import Node, NodeContext, NodeInputs, NodeOutputs, Records
 from .registry import register_node
 
@@ -131,7 +131,10 @@ class ApiSourceNode(Node):
         )
 
         async with httpx.AsyncClient(
-            timeout=cfg.timeout_s, verify=cfg.verify_tls, follow_redirects=True
+            timeout=cfg.timeout_s,
+            verify=cfg.verify_tls,
+            follow_redirects=True,
+            event_hooks=guarded_event_hooks(ctx.run.options.ssrf_policy),
         ) as client:
             records = await self._fetch_all(client, cfg, url, headers, params, limiter, ctx)
 

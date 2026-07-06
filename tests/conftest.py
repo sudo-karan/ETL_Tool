@@ -149,6 +149,32 @@ def http_server():
     server.shutdown()
 
 
+BLOCKED_REDIRECT_TARGET = "10.255.255.1"
+
+
+class _RedirectHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(302)
+        self.send_header("Location", f"http://{BLOCKED_REDIRECT_TARGET}/secret")
+        self.end_headers()
+
+    def log_message(self, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture(scope="session")
+def redirecting_server():
+    """A loopback server that 302-redirects to a blocked private IP.
+
+    Yields (entry_url, blocked_target_ip). Used to prove redirects can't
+    escape the SSRF guard.
+    """
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RedirectHandler)
+    _start_server(server)
+    yield f"http://127.0.0.1:{server.server_address[1]}", BLOCKED_REDIRECT_TARGET
+    server.shutdown()
+
+
 def _make_self_signed_cert(cert_path, key_path) -> None:
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
