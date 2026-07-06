@@ -1,0 +1,18 @@
+{
+  "id": "orders_db",
+  "type": "db_source",
+  "config": {
+    "connection": {
+      "driver": "postgresql",
+      "host": "db.internal.example",
+      "port": 5432,
+      "database": "shop",
+      "user": "readonly",
+      "secret_ref": "PGPASSWORD",
+      "sslmode": "require"
+    },
+    "query": "SELECT id, total, created_at FROM orders WHERE created_at >= :since ORDER BY id",
+    "params": { "since": "2026-01-01" },
+    "limit": 1000
+  }
+}

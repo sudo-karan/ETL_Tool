@@ -107,10 +107,10 @@ async def test_tls_rung_fails_on_self_signed_cert_with_verification(tls_server):
 
 
 async def test_unsupported_source_type_reports_config_failure():
-    report = await run_diagnostics({"type": "db_source", "config": {}})
+    report = await run_diagnostics({"type": "s3_source", "config": {}})
     assert not report.ok
     assert by_name(report, "config").status == "failed"
-    assert "db_source" in by_name(report, "config").error
+    assert "s3_source" in by_name(report, "config").error
 
 
 async def test_config_with_references_is_rejected():

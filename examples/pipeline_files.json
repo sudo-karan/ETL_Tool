@@ -1,0 +1,30 @@
+{
+  "pipeline_id": "file-report",
+  "nodes": [
+    {
+      "id": "read",
+      "type": "file_source",
+      "config": { "path": "examples/people.json" }
+    },
+    {
+      "id": "shape",
+      "type": "transform",
+      "config": {
+        "ops": [
+          { "op": "filter", "predicate": { "field": "score", "op": "gte", "value": 40 } },
+          { "op": "computed", "target": "grade", "expression": "'A' if score >= 80 else 'B'" },
+          { "op": "select", "fields": ["id", "name", "city", "score", "grade"] }
+        ]
+      }
+    },
+    {
+      "id": "write_csv",
+      "type": "file_sink",
+      "config": { "path": "examples/output/people_report.csv", "format": "csv" }
+    }
+  ],
+  "edges": [
+    { "from": "read", "to": "shape" },
+    { "from": "shape", "to": "write_csv" }
+  ]
+}

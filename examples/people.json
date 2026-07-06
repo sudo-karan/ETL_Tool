@@ -1,0 +1,6 @@
+[
+  { "id": 1, "name": "Ann Lee",   "city": "Portland", "score": 42 },
+  { "id": 2, "name": "Bob Ray",   "city": "Austin",   "score": 17 },
+  { "id": 3, "name": "Cara Diaz", "city": "Portland", "score": 88 },
+  { "id": 4, "name": "Dan Cole",  "city": "Denver",   "score": 55 }
+]
