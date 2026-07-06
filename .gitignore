@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 dist/
 build/
+
+# artifacts produced by running the example pipelines
+examples/output/

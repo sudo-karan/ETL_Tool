@@ -53,3 +53,27 @@ def get_path(obj: Any, path: str | Sequence[str], default: Any = _MISSING) -> An
 
 def has_path(obj: Any, path: str | Sequence[str]) -> bool:
     return get_path(obj, path, default=_MISSING) is not _MISSING
+
+
+def set_path(obj: Any, path: str | Sequence[str], value: Any) -> None:
+    """Set ``obj`` at a dotted path in place, e.g. ``"a.b.0.c" = value``.
+
+    Navigates existing mappings and sequences; the parent container must
+    already exist (callers that need creation should build it first). Raises
+    :class:`PathNotFoundError` if an intermediate segment is absent.
+    """
+    segments = split_path(path) if isinstance(path, str) else list(path)
+    if not segments:
+        raise PathNotFoundError("cannot set an empty path")
+    *parents, leaf = segments
+    current = get_path(obj, parents) if parents else obj
+    if isinstance(current, Mapping):
+        current[leaf] = value  # type: ignore[index]
+        return
+    if isinstance(current, Sequence) and not isinstance(current, (str, bytes)):
+        if _is_index(leaf):
+            index = int(leaf)
+            if -len(current) <= index < len(current):
+                current[index] = value  # type: ignore[index]
+                return
+    raise PathNotFoundError(f"cannot set path {'.'.join(segments)!r} on {type(current).__name__}")

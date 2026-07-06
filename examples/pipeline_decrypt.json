@@ -1,0 +1,32 @@
+{
+  "pipeline_id": "decrypt-user-emails",
+  "nodes": [
+    {
+      "id": "read",
+      "type": "file_source",
+      "config": { "path": "examples/encrypted_users.json" }
+    },
+    {
+      "id": "decrypt_email",
+      "type": "decrypt",
+      "config": {
+        "algo": "fernet",
+        "secret_ref": "DEMO_KEY",
+        "fields": ["email_enc"]
+      }
+    },
+    {
+      "id": "shape",
+      "type": "transform",
+      "config": {
+        "ops": [
+          { "op": "rename", "mapping": { "email_enc": "email" } }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "read", "to": "decrypt_email" },
+    { "from": "decrypt_email", "to": "shape" }
+  ]
+}

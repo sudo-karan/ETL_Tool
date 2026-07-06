@@ -1,0 +1,34 @@
+{
+  "pipeline_id": "api-to-api-chaining",
+  "nodes": [
+    {
+      "id": "user",
+      "type": "api_source",
+      "config": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/users/1"
+      }
+    },
+    {
+      "id": "posts",
+      "type": "api_source",
+      "config": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/posts",
+        "query_params": { "userId": "$upstream.user.id" }
+      }
+    },
+    {
+      "id": "comments",
+      "type": "api_source",
+      "config": {
+        "method": "GET",
+        "url": "https://jsonplaceholder.typicode.com/users/${upstream.user.id}/todos"
+      }
+    }
+  ],
+  "edges": [
+    { "from": "user", "to": "posts" },
+    { "from": "user", "to": "comments" }
+  ]
+}

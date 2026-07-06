@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 
 from .events import RunLog
+from .fileio import FileAccessPolicy
 from .http_client import RateLimiter
 from .redact import Redactor
 from .ssrf import SSRFPolicy
@@ -26,6 +27,7 @@ class ExecutionOptions(BaseModel):
     max_concurrency: int = Field(8, ge=1, description="Per-run cap on concurrent HTTP requests and iterator iterations.")
     continue_on_error: bool = Field(False, description="Keep executing branches/iterations that do not depend on a failed node (default is fail-fast).")
     ssrf_policy: SSRFPolicy = Field(default_factory=SSRFPolicy)
+    file_policy: FileAccessPolicy = Field(default_factory=FileAccessPolicy, description="Confines file_source/file_sink paths to allowed directories (empty = unrestricted).")
 
 
 @dataclass

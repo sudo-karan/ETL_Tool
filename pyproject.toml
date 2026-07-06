@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "etl-tool"
-version = "0.1.0"
-description = "Visual node-based ETL platform - Phase 1: headless execution engine"
+version = "0.2.0"
+description = "Visual node-based ETL platform - headless execution engine (Phases 1-2)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,13 +14,20 @@ dependencies = [
     "polars>=1.0",
     "pyarrow>=16",
     "cryptography>=42",
+    "sqlalchemy[asyncio]>=2.0",
 ]
 
 [project.optional-dependencies]
+# PostgreSQL driver for db_source / db_sink against a real Postgres server.
+# Hermetic tests use SQLite (aiosqlite) through the same SQLAlchemy async path.
+postgres = [
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
+    "aiosqlite>=0.20",
 ]
 
 [project.scripts]
