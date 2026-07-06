@@ -24,19 +24,20 @@ them:
    same JSON schema. Thick in screens, thin in logic: every screen renders
    backend state.
 
-**Current status: Phase 2 complete** — headless engine with nine node types
-(api / file / db sources & sinks, iterator, merge, transform, decrypt),
-connectivity diagnostics for API **and** database sources, a shared crypto
-layer, structured errors, `run`/`test`/`validate` CLI, full test suite.
+**Current status: Phase 3 complete** — the headless engine (nine node types)
+**plus a multi-user FastAPI server**: JWT auth, per-user pipeline/secret CRUD,
+an arq/Redis worker that runs the engine and persists structured logs/errors,
+live SSE run streaming, connectivity diagnostics, and a timezone-aware cron
+scheduler. All that's left is the Phase 4 React Flow UI.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 | Headless engine: schema, api_source / iterator / merge / transform, test_connection, CLI, NodeError | ✅ done |
 | 2 | file_source/sink (CSV/JSON/JSONL/Parquet), db_source/sink (Postgres/SQLite) + db test_connection, decrypt node, API-to-API chaining, SecretsProvider | ✅ done |
-| 3a | Server foundation: PostgreSQL, Alembic, JWT auth, pipeline CRUD | ⏳ next |
-| 3b | arq + Redis execution service, run tracking, streaming | — |
-| 3c | Scheduler (cron over `schedules` table, timezone-aware) | — |
-| 4 | React Flow UI | — |
+| 3a | Server foundation: PostgreSQL models, Alembic, JWT auth, per-user pipeline CRUD, SSRF in the HTTP/DB layer | ✅ done |
+| 3b | arq + Redis worker (encrypted secrets → engine → status/log/error tracking); trigger-run, test-connection, live SSE streaming | ✅ done |
+| 3c | Scheduler: per-minute tick over `schedules` (timezone-aware), schedule CRUD | ✅ done |
+| 4 | React Flow UI | ⏳ next |
 
 *(The `SecretsProvider` interface + env provider and the `$upstream`/`$iter`
 reference engine landed in Phase 1 — api_source auth and iterator fan-out
@@ -48,17 +49,20 @@ it now and the Phase 3 server will reuse it to encrypt secrets at rest.)*
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,server]"
+pytest            # 277 tests, all hermetic (mocked APIs, loopback servers, SQLite)
+
+# Engine only (no FastAPI server): the server tests skip automatically.
 pip install -e ".[dev]"
-pytest            # 233 tests, all hermetic (mocked APIs, loopback servers, SQLite)
 
 # To run db_source/db_sink against a real PostgreSQL server, add the driver:
 pip install -e ".[dev,postgres]"     # pulls in asyncpg
 ```
 
 The database nodes go through SQLAlchemy 2.0 async: **PostgreSQL** via
-`asyncpg` (the `[postgres]` extra) and **SQLite** via `aiosqlite` — the same
-code path, so the whole node stack is tested hermetically against SQLite with
-no server to stand up.
+`asyncpg` (the `[postgres]`/`[server]` extras) and **SQLite** via `aiosqlite`
+— the same code path, so the whole node **and server** stack is tested
+hermetically against SQLite with no PostgreSQL, Redis or arq to stand up.
 
 ## CLI
 
@@ -423,15 +427,99 @@ run, iterator iterations execute concurrently and all HTTP requests share a
 per-run semaphore (`max_concurrency`, default 8). Per-node `rate_limit.rps`
 holds across concurrent iterations of that node.
 
+## Server (Phase 3)
+
+A multi-user FastAPI server wraps the engine. It is a **consumer** of the
+engine — it never reimplements node logic — and the React Flow UI (Phase 4)
+will in turn be a consumer of these endpoints. Stack: FastAPI, SQLAlchemy 2.0
+async (PostgreSQL / SQLite), Alembic, arq + Redis, JWT.
+
+```
+HTTP request ──▶ FastAPI ──▶ enqueue Run ──▶ arq worker ──▶ execute_pipeline()
+                    │                             │                 │
+                 Postgres  ◀── status/logs/errors ┘         resolved secrets
+                    │                                       (decrypted in worker)
+     SSE  ◀── poll run_logs + status ◀───────────────────────────┘
+```
+
+### Run it
+
+```bash
+pip install -e ".[server]"
+
+# 1. configure (all ETL_-prefixed; dev defaults let it boot with nothing set)
+export ETL_DATABASE_URL="postgresql+asyncpg://user:pw@localhost/etl"
+export ETL_REDIS_URL="redis://localhost:6379"
+export ETL_JWT_SECRET="$(openssl rand -hex 32)"
+export ETL_MASTER_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export ETL_SSRF_ALLOW_HOSTS="10.0.0.0/8,db.internal"   # optional allowlist
+
+# 2. migrate, then run the API and the worker (separate processes)
+alembic upgrade head
+etl-server                                    # uvicorn on :8000  (/docs for OpenAPI)
+arq etl_server.arq_worker.WorkerSettings      # worker + per-minute scheduler tick
+```
+
+For single-machine dev without Redis, set `ETL_CREATE_TABLES_ON_STARTUP=true`
+and note that a triggered run is executed inline by the API process (the
+in-memory queue) — no worker needed.
+
+### Endpoints
+
+| Method & path | Purpose |
+| --- | --- |
+| `POST /auth/register`, `POST /auth/token`, `GET /auth/me` | register, log in (returns a JWT), current user |
+| `GET/POST /pipelines`, `GET/PUT/DELETE /pipelines/{id}` | per-user pipeline CRUD (spec validated against the engine schema) |
+| `POST /pipelines/{id}/runs` | trigger a run (202; enqueued) |
+| `GET /runs`, `GET /runs/{id}` | list runs; run detail with logs + structured errors |
+| `GET /runs/{id}/events` | **live SSE stream** of `log` / `status` / `done` events |
+| `POST/GET /secrets`, `DELETE /secrets/{ref}` | per-user secrets (encrypted at rest; values never returned) |
+| `POST /test-connection` | connectivity diagnostics for an `api_source` / `db_source`, using the caller's secrets + the deployment SSRF policy |
+| `GET/POST /schedules`, `GET/PUT/DELETE /schedules/{id}` | schedule CRUD (cron + IANA timezone) |
+| `GET /health` | liveness |
+
+```bash
+TOKEN=$(curl -s localhost:8000/auth/token -d 'username=me@x.com&password=...' | jq -r .access_token)
+curl -s localhost:8000/pipelines -H "Authorization: Bearer $TOKEN" \
+     -d '{"name":"demo","spec":{...}}' -H 'Content-Type: application/json'
+```
+
+### How it maps to the engine's guarantees
+
+- **Secrets** are stored per user as AES-GCM/Fernet tokens (the same
+  `crypto.py` the `decrypt` node uses), keyed by `ETL_MASTER_KEY`, and
+  decrypted **only inside the worker** at run time via a `DbSecretsProvider`
+  that implements the engine's `SecretsProvider` interface. Pipeline JSON and
+  API responses carry `secret_ref` names only.
+- **Errors** persist as `run_errors` rows — the engine's structured
+  `NodeError` (category, HTTP status, redacted request summary, retries) — and
+  stream over SSE. Nothing bypasses the engine's redaction.
+- **SSRF** the deployment policy (`ETL_SSRF_ENABLED`, `ETL_SSRF_ALLOW_HOSTS`)
+  is handed to the engine for every run and every `test-connection`, covering
+  HTTP and database hosts alike.
+- **Ownership** every pipeline, run, secret and schedule is scoped to its
+  owner; cross-user access 404s.
+- **Scheduling** a per-minute arq cron tick evaluates each schedule's due-ness
+  in *its own* timezone and enqueues due runs onto the same queue workers
+  already consume — a scheduled run is just a run with `trigger = schedule`.
+
 ## Known limitations (v1, by design — documented for later phases)
 
 - **Rate limiting is per-run only.** Multiple concurrent runs hitting the
   same external API are not globally throttled. Future: global, cross-run,
   per-host rate limiting in the server layer.
-- **SSRF DNS pinning.** The guard resolves and checks a host, then the HTTP
-  client resolves again; a hostile DNS server could rebind between lookups.
-  Pinning the vetted IP into the connection is planned for Phase 3, where
-  the guard is baked into the server's HTTP layer.
+- **SSRF DNS pinning.** The guard resolves and checks a host, then the client
+  resolves again; a hostile DNS server could rebind between lookups. The
+  server applies the policy on every run, but pinning the vetted IP into the
+  connection is still future work.
+- **Live log streaming polls the database** (every ~0.25s) rather than using a
+  Redis pub/sub fan-out — simple and correct across processes, but a pub/sub
+  path would scale better under many concurrent SSE listeners.
+- **Run `params` are stored but not yet injected** into the engine; a
+  `$params.*` reference source is future work (a scheduled/triggered run
+  records its params for provenance today).
+- **SSE authenticates via the `Authorization` header** (fetch/EventSource with
+  a token), not a cookie; the Phase 4 UI wires that up.
 - Nested / overlapping iterator scopes are rejected rather than executed.
 - **Records are buffered in memory** (no streaming), so file/db loads are
   bounded by RAM — fine for API-sized payloads and moderate tables; chunked
@@ -439,10 +527,10 @@ holds across concurrent iterations of that node.
 - **DB value coercion is lossy where JSON is:** `Decimal` becomes `float`
   (use a `transform` cast or `SELECT col::text` if you need exact precision),
   and `bytes` become Base64.
-- **DB TLS is coarse in the engine:** `sslmode` is `disable` (off) vs. anything
-  else (on, default verification). Fine-grained cert pinning / `verify-full`
-  lands with the Phase 3 server HTTP+DB layer. SQLite is intended for local
-  dev/testing; PostgreSQL is the production target.
+- **DB TLS is coarse:** `sslmode` is `disable` (off) vs. anything else (on,
+  default verification). Fine-grained cert pinning / `verify-full` is future
+  work. SQLite is intended for local dev/testing; PostgreSQL is the production
+  target for both the db nodes and the server.
 
 ## Repository layout
 
@@ -466,8 +554,21 @@ src/etl_core/
   cli.py            etl run / test / validate
   nodes/            plugin interface + api_source, file_source/sink,
                     db_source/sink, iterator, merge, transform, decrypt
-tests/              233 tests: unit + engine integration (respx-mocked APIs,
-                    loopback HTTP/TLS servers, SQLite-backed db nodes)
+src/etl_server/     Phase 3 server (a consumer of the engine)
+  config.py         env-driven settings; builds the SSRF policy + secrets cipher
+  models.py         SQLAlchemy models: users, pipelines, runs, run_logs,
+                    run_errors, schedules, secrets
+  db.py             async engine + session factory
+  security.py       bcrypt password hashing + JWT
+  secrets_store.py  encrypted-at-rest secrets (DbSecretsProvider)
+  queue.py          JobQueue: arq (prod) + in-memory (dev/tests)
+  worker.py         execute_run: secrets → engine → status/logs/errors
+  scheduler.py      timezone-aware due evaluation + the enqueue tick
+  routers/          auth, pipelines, runs (+SSE), secrets, diagnostics, schedules
+  app.py            FastAPI factory; __main__.py = uvicorn; arq_worker.py = worker
+  migrations/       Alembic (async env + initial revision)
+tests/              277 tests: engine (respx APIs, loopback servers, SQLite db
+  server/           nodes) + server (ASGI client, SQLite, in-memory queue)
 examples/           runnable pipelines (api chaining, files, decrypt) + sources
 ```
 

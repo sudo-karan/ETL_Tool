@@ -7,3 +7,7 @@ build/
 
 # artifacts produced by running the example pipelines
 examples/output/
+
+# local server dev artifacts
+*.db
+.env
